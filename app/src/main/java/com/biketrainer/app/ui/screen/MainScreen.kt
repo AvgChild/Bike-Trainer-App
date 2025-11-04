@@ -230,7 +230,8 @@ fun MainContent(viewModel: MainViewModel) {
             MetricsDisplay(
                 heartRateData = heartRateData,
                 trainerData = trainerData,
-                onDisconnect = { viewModel.disconnectAll() }
+                onDisconnect = { viewModel.disconnectAll() },
+                viewModel = viewModel
             )
         }
     }
@@ -338,9 +339,9 @@ fun DeviceItem(
 fun MetricsDisplay(
     heartRateData: com.biketrainer.app.data.ble.HeartRateData?,
     trainerData: com.biketrainer.app.data.ble.TrainerData?,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    viewModel: MainViewModel
 ) {
-    val viewModel: MainViewModel = hiltViewModel()
     var resistanceLevel by remember { mutableStateOf(50f) }
     var targetPower by remember { mutableStateOf(150f) }
     var hasRequestedControl by remember { mutableStateOf(false) }
