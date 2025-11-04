@@ -31,11 +31,13 @@ import com.google.accompanist.permissions.rememberMultiplePermissionsState
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
-fun MainScreen(
-    viewModel: MainViewModel = viewModel(
-        factory = MainViewModelFactory(BleManager(LocalContext.current))
+fun MainScreen() {
+    val context = LocalContext.current
+    val viewModel: MainViewModel = viewModel(
+        factory = MainViewModelFactory(
+            bleManager = remember { BleManager(context) }
+        )
     )
-) {
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         listOf(
             Manifest.permission.BLUETOOTH_SCAN,
