@@ -36,6 +36,24 @@ An Android application for connecting to Wahoo Kicker Core bike trainers and Wah
 - **Power Target Control** - Set target power output (0-500 watts) via slider
 - **Reset Trainer** - Reset trainer to default settings
 
+### Workout Recording & Export
+- **Start/Stop Workout** - Record your training sessions with one tap
+- **Real-time Duration Tracking** - See workout timer update every second
+- **Automatic Data Collection** - Records all metrics every second during workout:
+  - Heart rate throughout session
+  - Power output
+  - Speed and cadence
+  - Distance traveled
+- **TCX File Export** - Saves workouts in TCX format (Training Center XML)
+- **Strava Compatible** - TCX files can be uploaded directly to Strava
+- **Local Storage** - Workouts saved to device for later upload
+- **Workout Statistics** - Calculates:
+  - Total distance
+  - Average & maximum heart rate
+  - Average & maximum power
+  - Average cadence
+  - Estimated calories burned
+
 ## Technical Details
 
 ### Architecture
@@ -43,8 +61,9 @@ An Android application for connecting to Wahoo Kicker Core bike trainers and Wah
 - **Language**: Kotlin
 - **UI**: Jetpack Compose with Material 3
 - **Architecture Pattern**: MVVM (Model-View-ViewModel)
-- **Dependency Injection**: Dagger Hilt
+- **Dependency Injection**: Manual (ViewModelFactory pattern)
 - **Async Operations**: Kotlin Coroutines & StateFlow
+- **Data Persistence**: Local file storage (TCX format)
 
 ### BLE Protocols
 
@@ -135,7 +154,14 @@ The APK will be located at: `app/build/outputs/apk/debug/app-debug.apk`
      - Additional Metrics (averages, resistance, distance, time)
      - Energy & Calories (total energy, energy rates, MET)
 
-5. **Control Trainer**:
+5. **Record Workouts**:
+   - Tap "Start Workout" to begin recording your session
+   - The card will turn red and show a live timer
+   - All metrics are automatically recorded every second
+   - Tap "Stop Workout" when finished
+   - Workout is automatically saved as a TCX file
+
+6. **Control Trainer** (Optional):
    - Tap "Request Trainer Control" to gain control authority
    - Once control is granted, you can:
      - Adjust resistance level using the slider (0-100)
@@ -143,7 +169,14 @@ The APK will be located at: `app/build/outputs/apk/debug/app-debug.apk`
      - Reset the trainer to default settings
    - The trainer will adjust in real-time as you move the sliders
 
-6. **Disconnect**:
+7. **Upload to Strava**:
+   - Workouts are saved in `/data/data/com.biketrainer.app/files/workouts/`
+   - Each workout is saved as `[workout-id].tcx`
+   - Transfer TCX files to your computer or use a file manager app
+   - Upload to Strava via their website or app
+   - Strava automatically reads heart rate, power, cadence, and distance
+
+8. **Disconnect**:
    - Tap the "Disconnect" button to disconnect from all devices
    - This returns you to the scanning screen
 
@@ -188,11 +221,14 @@ Any BLE device that implements the standard protocols:
 
 ```
 app/src/main/java/com/biketrainer/app/
-├── BikeTrainerApplication.kt          # Application class with Hilt
+├── BikeTrainerApplication.kt          # Application class
 ├── MainActivity.kt                    # Main activity
 ├── data/
-│   └── ble/
-│       └── BleManager.kt              # BLE connection & protocol handling
+│   ├── ble/
+│   │   └── BleManager.kt              # BLE connection & protocol handling
+│   └── workout/
+│       ├── WorkoutModels.kt           # Workout data models & TCX export
+│       └── WorkoutManager.kt          # Workout recording & file management
 ├── ui/
 │   ├── screen/
 │   │   └── MainScreen.kt              # Main UI composables

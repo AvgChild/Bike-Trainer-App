@@ -23,6 +23,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.biketrainer.app.data.ble.BleManager
 import com.biketrainer.app.data.ble.ConnectionState
+import com.biketrainer.app.data.workout.WorkoutManager
 import com.biketrainer.app.ui.viewmodel.MainViewModel
 import com.biketrainer.app.ui.viewmodel.MainViewModelFactory
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
@@ -35,7 +36,8 @@ fun MainScreen() {
     val context = LocalContext.current
     val viewModel: MainViewModel = viewModel(
         factory = MainViewModelFactory(
-            bleManager = remember { BleManager(context) }
+            bleManager = remember { BleManager(context) },
+            workoutManager = remember { WorkoutManager(context) }
         )
     )
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -347,6 +349,8 @@ fun MetricsDisplay(
     var resistanceLevel by remember { mutableStateOf(50f) }
     var targetPower by remember { mutableStateOf(150f) }
     var hasRequestedControl by remember { mutableStateOf(false) }
+    val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
+    val workoutDuration by viewModel.currentWorkoutDuration.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier
@@ -378,9 +382,66 @@ fun MetricsDisplay(
             }
         }
 
+        // Workout Recording Section
+        item {
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isRecording) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = if (isRecording) "Recording Workout" else "Workout",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isRecording) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+
+                            if (isRecording) {
+                                val minutes = workoutDuration / 60
+                                val seconds = workoutDuration % 60
+                                Text(
+                                    text = String.format("%02d:%02d", minutes, seconds),
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                if (isRecording) {
+                                    viewModel.stopWorkout()
+                                } else {
+                                    viewModel.startWorkout()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text(if (isRecording) "Stop Workout" else "Start Workout")
+                        }
+                    }
+                }
+            }
+        }
+
         // Trainer Control Section
         item {
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),

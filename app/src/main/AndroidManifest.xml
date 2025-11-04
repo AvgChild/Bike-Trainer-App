@@ -14,6 +14,9 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!-- Internet permission for Strava uploads -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Bluetooth LE feature -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -30,10 +33,21 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.BikeTrainerApp">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Strava OAuth callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="biketrainer"
+                    android:host="strava"
+                    android:pathPrefix="/callback" />
             </intent-filter>
         </activity>
     </application>
