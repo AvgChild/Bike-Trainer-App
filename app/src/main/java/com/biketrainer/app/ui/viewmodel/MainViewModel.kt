@@ -2,19 +2,17 @@ package com.biketrainer.app.ui.viewmodel
 
 import android.bluetooth.BluetoothDevice
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.biketrainer.app.data.ble.BleManager
 import com.biketrainer.app.data.ble.ConnectionState
 import com.biketrainer.app.data.ble.HeartRateData
 import com.biketrainer.app.data.ble.TrainerData
-import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
-import javax.inject.Inject
 
-@HiltViewModel
-class MainViewModel @Inject constructor(
+class MainViewModel(
     private val bleManager: BleManager
 ) : ViewModel() {
 
@@ -77,5 +75,17 @@ class MainViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         bleManager.disconnectAll()
+    }
+}
+
+class MainViewModelFactory(
+    private val bleManager: BleManager
+) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
+            return MainViewModel(bleManager) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
     }
 }

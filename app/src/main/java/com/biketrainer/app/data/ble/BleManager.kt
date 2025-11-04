@@ -21,17 +21,13 @@ import android.os.Build
 import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.app.ActivityCompat
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
-import javax.inject.Inject
-import javax.inject.Singleton
 
-@Singleton
-class BleManager @Inject constructor(
-    @ApplicationContext private val context: Context
+class BleManager(
+    private val context: Context
 ) {
     companion object {
         private const val TAG = "BleManager"
