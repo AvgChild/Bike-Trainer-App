@@ -104,6 +104,34 @@ class MainViewModel(
     fun stopWorkout(): Workout? {
         val workout = workoutManager.stopWorkout()
         _lastCompletedWorkout.value = workout
+
+        // Auto-sync to Strava if authenticated
+        workout?.let {
+            if (stravaApi.isAuthenticated()) {
+                val tcxFile = workoutManager.getAllWorkouts().firstOrNull { file ->
+                    file.nameWithoutExtension == it.id
+                }
+                tcxFile?.let { file ->
+                    viewModelScope.launch {
+                        _uploadStatus.value = "Auto-syncing to Strava..."
+                        when (val result = stravaApi.uploadWorkout(file)) {
+                            is UploadResult.Success -> {
+                                _uploadStatus.value = "Auto-synced to Strava!"
+                            }
+                            is UploadResult.Error -> {
+                                _uploadStatus.value = "Auto-sync failed: ${result.message}"
+                            }
+                            is UploadResult.NotAuthenticated -> {
+                                _uploadStatus.value = null
+                            }
+                        }
+                        delay(3000)
+                        _uploadStatus.value = null
+                    }
+                }
+            }
+        }
+
         return workout
     }
 
@@ -136,6 +164,49 @@ class MainViewModel(
         return workoutManager.deleteWorkout(workoutFile)
     }
 
+    fun initiateStravaAuth() {
+        stravaApi.startOAuthFlow()
+    }
+
+    fun handleStravaCallback(code: String) {
+        viewModelScope.launch {
+            val success = stravaApi.handleOAuthCallback(code)
+            _uploadStatus.value = if (success) {
+                "Successfully connected to Strava!"
+            } else {
+                "Failed to connect to Strava"
+            }
+            delay(3000)
+            _uploadStatus.value = null
+        }
+    }
+
+    fun uploadToStrava(tcxFile: File) {
+        viewModelScope.launch {
+            _uploadStatus.value = "Uploading to Strava..."
+
+            when (val result = stravaApi.uploadWorkout(tcxFile)) {
+                is UploadResult.Success -> {
+                    _uploadStatus.value = "Successfully uploaded to Strava!"
+                }
+                is UploadResult.Error -> {
+                    _uploadStatus.value = "Upload failed: ${result.message}"
+                }
+                is UploadResult.NotAuthenticated -> {
+                    _uploadStatus.value = "Please connect to Strava first"
+                    stravaApi.startOAuthFlow()
+                }
+            }
+
+            delay(3000)
+            _uploadStatus.value = null
+        }
+    }
+
+    fun isStravaAuthenticated(): Boolean {
+        return stravaApi.isAuthenticated()
+    }
+
     override fun onCleared() {
         super.onCleared()
         if (isRecording.value) {
@@ -147,12 +218,13 @@ class MainViewModel(
 
 class MainViewModelFactory(
     private val bleManager: BleManager,
-    private val workoutManager: WorkoutManager
+    private val workoutManager: WorkoutManager,
+    private val stravaApi: StravaApi
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
-            return MainViewModel(bleManager, workoutManager) as T
+            return MainViewModel(bleManager, workoutManager, stravaApi) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

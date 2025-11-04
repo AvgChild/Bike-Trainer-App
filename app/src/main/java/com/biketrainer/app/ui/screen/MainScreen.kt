@@ -3,7 +3,9 @@ package com.biketrainer.app.ui.screen
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.le.ScanResult
+import android.content.Intent
 import android.os.Build
+import androidx.core.content.FileProvider
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,6 +14,7 @@ import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +26,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.biketrainer.app.data.ble.BleManager
 import com.biketrainer.app.data.ble.ConnectionState
+import com.biketrainer.app.data.strava.StravaApi
 import com.biketrainer.app.data.workout.WorkoutManager
 import com.biketrainer.app.ui.viewmodel.MainViewModel
 import com.biketrainer.app.ui.viewmodel.MainViewModelFactory
@@ -37,7 +41,8 @@ fun MainScreen() {
     val viewModel: MainViewModel = viewModel(
         factory = MainViewModelFactory(
             bleManager = remember { BleManager(context) },
-            workoutManager = remember { WorkoutManager(context) }
+            workoutManager = remember { WorkoutManager(context) },
+            stravaApi = remember { StravaApi(context) }
         )
     )
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -52,11 +57,22 @@ fun MainScreen() {
     }
 
     val permissionsState = rememberMultiplePermissionsState(permissions)
+    var showHistory by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Bike Trainer") },
+                actions = {
+                    if (permissionsState.allPermissionsGranted) {
+                        IconButton(onClick = { showHistory = !showHistory }) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = "Workout History"
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -70,7 +86,42 @@ fun MainScreen() {
                 .padding(paddingValues)
         ) {
             if (permissionsState.allPermissionsGranted) {
-                MainContent(viewModel)
+                if (showHistory) {
+                    val workouts = remember { viewModel.getAllWorkouts() }
+                    WorkoutHistoryScreen(
+                        workouts = workouts,
+                        onBack = { showHistory = false },
+                        onShareWorkout = { file ->
+                            try {
+                                val uri = FileProvider.getUriForFile(
+                                    context,
+                                    "${context.packageName}.fileprovider",
+                                    file
+                                )
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/xml"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    putExtra(Intent.EXTRA_SUBJECT, "Bike Trainer Workout")
+                                    putExtra(Intent.EXTRA_TEXT, "Check out my workout!")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share Workout"))
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        },
+                        onDeleteWorkout = { file ->
+                            viewModel.deleteWorkout(file)
+                            showHistory = false
+                            showHistory = true // Refresh
+                        },
+                        onUploadToStrava = { file ->
+                            viewModel.uploadToStrava(file)
+                        }
+                    )
+                } else {
+                    MainContent(viewModel)
+                }
             } else {
                 PermissionsRequestScreen(permissionsState)
             }
@@ -351,6 +402,7 @@ fun MetricsDisplay(
     var hasRequestedControl by remember { mutableStateOf(false) }
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
     val workoutDuration by viewModel.currentWorkoutDuration.collectAsStateWithLifecycle()
+    val uploadStatus by viewModel.uploadStatus.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier
@@ -434,6 +486,40 @@ fun MetricsDisplay(
                         ) {
                             Text(if (isRecording) "Stop Workout" else "Start Workout")
                         }
+                    }
+                }
+            }
+        }
+
+        // Upload Status Banner
+        uploadStatus?.let { status ->
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (status.contains("syncing", ignoreCase = true)) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = status,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
                     }
                 }
             }
