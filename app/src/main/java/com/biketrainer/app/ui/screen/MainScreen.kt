@@ -179,15 +179,15 @@ fun MainContent(viewModel: MainViewModel) {
     val heartRateData by viewModel.heartRateData.collectAsStateWithLifecycle()
     val trainerData by viewModel.trainerData.collectAsStateWithLifecycle()
 
-    val bothConnected = heartRateConnectionState == ConnectionState.CONNECTED &&
-                       trainerConnectionState == ConnectionState.CONNECTED
+    // Only require trainer connection - HR monitor is optional
+    val trainerConnected = trainerConnectionState == ConnectionState.CONNECTED
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        if (!bothConnected) {
+        if (!trainerConnected) {
             // Device scanning and connection section
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -231,14 +231,14 @@ fun MainContent(viewModel: MainViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
 
                     ConnectionStatusRow(
-                        label = "Heart Rate Monitor",
+                        label = "Heart Rate Monitor (optional)",
                         state = heartRateConnectionState
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
 
                     ConnectionStatusRow(
-                        label = "Bike Trainer",
+                        label = "Bike Trainer (required)",
                         state = trainerConnectionState
                     )
                 }
@@ -625,7 +625,7 @@ fun MetricsDisplay(
             Spacer(modifier = Modifier.height(8.dp))
 
             MetricCard(
-                title = "Heart Rate",
+                title = if (heartRateData == null) "Heart Rate (no monitor)" else "Heart Rate",
                 value = heartRateData?.heartRate?.toString() ?: "--",
                 unit = "bpm",
                 icon = Icons.Default.Favorite
