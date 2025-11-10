@@ -7,7 +7,10 @@
       "Bash(Select-String -Pattern \"error|Unresolved|Exception\")",
       "Bash(Select-Object -First 20)",
       "Bash(./gradlew clean build:*)",
-      "Bash(./gradlew assembleDebug:*)"
+      "Bash(./gradlew assembleDebug:*)",
+      "Bash(Select-String -Pattern \"error|BUILD|Exception\")",
+      "Bash(cmd /c gradlew.bat assembleDebug)",
+      "Bash(cmd /c \"gradlew.bat assembleDebug 2>&1\")"
     ],
     "deny": [],
     "ask": []

@@ -76,6 +76,14 @@ class MainViewModel(
         bleManager.stopScanning()
     }
 
+    fun reconnectHeartRateMonitor() {
+        bleManager.reconnectHeartRateMonitor()
+    }
+
+    fun hasLastHeartRateDevice(): Boolean {
+        return bleManager.hasLastHeartRateDevice()
+    }
+
     fun requestTrainerControl() {
         bleManager.requestTrainerControl()
     }

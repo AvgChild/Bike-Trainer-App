@@ -59,6 +59,7 @@ class BleManager(
 
     private var heartRateGatt: BluetoothGatt? = null
     private var trainerGatt: BluetoothGatt? = null
+    private var lastHeartRateDevice: BluetoothDevice? = null
 
     private val _isScanning = MutableStateFlow(false)
     val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
@@ -142,9 +143,29 @@ class BleManager(
     fun connectToHeartRateMonitor(device: BluetoothDevice) {
         if (!hasBluetoothPermissions()) return
 
+        lastHeartRateDevice = device
         _heartRateConnectionState.value = ConnectionState.CONNECTING
         heartRateGatt = device.connectGatt(context, false, heartRateGattCallback)
     }
+
+    @SuppressLint("MissingPermission")
+    fun reconnectHeartRateMonitor() {
+        lastHeartRateDevice?.let { device ->
+            if (!hasBluetoothPermissions()) return
+
+            // Disconnect if already connected
+            heartRateGatt?.disconnect()
+            heartRateGatt?.close()
+
+            _heartRateConnectionState.value = ConnectionState.CONNECTING
+            heartRateGatt = device.connectGatt(context, false, heartRateGattCallback)
+            Log.d(TAG, "Reconnecting to heart rate monitor: ${device.address}")
+        } ?: run {
+            Log.w(TAG, "No previous heart rate device to reconnect to")
+        }
+    }
+
+    fun hasLastHeartRateDevice(): Boolean = lastHeartRateDevice != null
 
     @SuppressLint("MissingPermission")
     fun connectToTrainer(device: BluetoothDevice) {

@@ -15,6 +15,9 @@ import androidx.compose.material.icons.filled.BluetoothSearching
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,6 +61,7 @@ fun MainScreen() {
 
     val permissionsState = rememberMultiplePermissionsState(permissions)
     var showHistory by remember { mutableStateOf(false) }
+    val lastCompletedWorkout by viewModel.lastCompletedWorkout.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -86,7 +90,39 @@ fun MainScreen() {
                 .padding(paddingValues)
         ) {
             if (permissionsState.allPermissionsGranted) {
-                if (showHistory) {
+                if (lastCompletedWorkout != null) {
+                    FinishedWorkoutScreen(
+                        workout = lastCompletedWorkout!!,
+                        onShare = {
+                            // Find the TCX file for this workout
+                            val tcxFile = viewModel.getAllWorkouts().firstOrNull { file ->
+                                file.nameWithoutExtension == lastCompletedWorkout!!.id
+                            }
+                            tcxFile?.let { file ->
+                                try {
+                                    val uri = FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        file
+                                    )
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/xml"
+                                        putExtra(Intent.EXTRA_STREAM, uri)
+                                        putExtra(Intent.EXTRA_SUBJECT, "Bike Trainer Workout")
+                                        putExtra(Intent.EXTRA_TEXT, "Check out my workout!")
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(Intent.createChooser(shareIntent, "Share Workout"))
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
+                        },
+                        onDismiss = {
+                            viewModel.clearLastWorkout()
+                        }
+                    )
+                } else if (showHistory) {
                     val workouts = remember { viewModel.getAllWorkouts() }
                     WorkoutHistoryScreen(
                         workouts = workouts,
@@ -390,6 +426,11 @@ fun DeviceItem(
     }
 }
 
+enum class TrainerControlMode {
+    RESISTANCE,
+    POWER
+}
+
 @Composable
 fun MetricsDisplay(
     heartRateData: com.biketrainer.app.data.ble.HeartRateData?,
@@ -400,6 +441,7 @@ fun MetricsDisplay(
     var resistanceLevel by remember { mutableStateOf(50f) }
     var targetPower by remember { mutableStateOf(150f) }
     var hasRequestedControl by remember { mutableStateOf(false) }
+    var controlMode by remember { mutableStateOf(TrainerControlMode.RESISTANCE) }
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
     val workoutDuration by viewModel.currentWorkoutDuration.collectAsStateWithLifecycle()
     val uploadStatus by viewModel.uploadStatus.collectAsStateWithLifecycle()
@@ -558,41 +600,81 @@ fun MetricsDisplay(
                             Text("Request Trainer Control")
                         }
                     } else {
-                        // Resistance Control
-                        Text(
-                            text = "Resistance Level: ${resistanceLevel.toInt()}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-
-                        Slider(
-                            value = resistanceLevel,
-                            onValueChange = { resistanceLevel = it },
-                            valueRange = 0f..100f,
-                            onValueChangeFinished = {
-                                viewModel.setTargetResistanceLevel(resistanceLevel.toInt())
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                        // Mode Selector
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilterChip(
+                                selected = controlMode == TrainerControlMode.RESISTANCE,
+                                onClick = { controlMode = TrainerControlMode.RESISTANCE },
+                                label = { Text("Resistance") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = controlMode == TrainerControlMode.POWER,
+                                onClick = { controlMode = TrainerControlMode.POWER },
+                                label = { Text("Target Power") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Power Target Control
-                        Text(
-                            text = "Target Power: ${targetPower.toInt()} watts",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
+                        when (controlMode) {
+                            TrainerControlMode.RESISTANCE -> {
+                                Text(
+                                    text = "Manual resistance control - you control power by pedaling harder or softer",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
+                                )
 
-                        Slider(
-                            value = targetPower,
-                            onValueChange = { targetPower = it },
-                            valueRange = 0f..500f,
-                            onValueChangeFinished = {
-                                viewModel.setTargetPower(targetPower.toInt())
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Text(
+                                    text = "Resistance Level: ${resistanceLevel.toInt()}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+
+                                Slider(
+                                    value = resistanceLevel,
+                                    onValueChange = { resistanceLevel = it },
+                                    valueRange = 0f..100f,
+                                    onValueChangeFinished = {
+                                        viewModel.setTargetResistanceLevel(resistanceLevel.toInt())
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            TrainerControlMode.POWER -> {
+                                Text(
+                                    text = "ERG mode - trainer auto-adjusts resistance to maintain your target wattage",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Text(
+                                    text = "Target Power: ${targetPower.toInt()} watts",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+
+                                Slider(
+                                    value = targetPower,
+                                    onValueChange = { targetPower = it },
+                                    valueRange = 0f..500f,
+                                    onValueChangeFinished = {
+                                        viewModel.setTargetPower(targetPower.toInt())
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
 
                         Spacer(modifier = Modifier.height(12.dp))
 
@@ -630,6 +712,26 @@ fun MetricsDisplay(
                 unit = "bpm",
                 icon = Icons.Default.Favorite
             )
+        }
+
+        // HR Monitor Reconnect Button
+        if (heartRateData == null && viewModel.hasLastHeartRateDevice()) {
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = { viewModel.reconnectHeartRateMonitor() },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Reconnect HR Monitor")
+                }
+            }
         }
 
         item {
@@ -918,6 +1020,346 @@ fun SmallMetricCard(
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun FinishedWorkoutScreen(
+    workout: com.biketrainer.app.data.workout.Workout,
+    onShare: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Workout Complete") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            )
+        }
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(horizontal = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            item {
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Great job!",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                val minutes = workout.durationSeconds / 60
+                val seconds = workout.durationSeconds % 60
+                Text(
+                    text = String.format("Duration: %02d:%02d", minutes, seconds),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                Text(
+                    text = "Workout Summary",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Heart Rate Summary
+            if (workout.averageHeartRate != null || workout.maxHeartRate != null) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Favorite,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Heart Rate",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                workout.averageHeartRate?.let { avgHr ->
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "Average",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                        Text(
+                                            text = "$avgHr bpm",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
+
+                                workout.maxHeartRate?.let { maxHr ->
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "Maximum",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                        Text(
+                                            text = "$maxHr bpm",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+
+            // Power Summary
+            if (workout.averagePower != null || workout.maxPower != null) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DirectionsBike,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                    tint = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Power",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                workout.averagePower?.let { avgPower ->
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "Average",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        Text(
+                                            text = "$avgPower W",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
+                                }
+
+                                workout.maxPower?.let { maxPower ->
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = "Maximum",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        Text(
+                                            text = "$maxPower W",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+
+            // Additional Metrics Row
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Distance
+                    Card(
+                        modifier = Modifier.weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Distance",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "%.2f km".format(workout.totalDistance / 1000),
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                    }
+
+                    // Calories
+                    workout.calories?.let { calories ->
+                        Card(
+                            modifier = Modifier.weight(1f),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .padding(16.dp)
+                                    .fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Calories",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "$calories",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            // Cadence (if available)
+            workout.averageCadence?.let { avgCadence ->
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .padding(16.dp)
+                                .fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Average Cadence:",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "%.0f rpm".format(avgCadence),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
+
+            // Action Buttons
+            item {
+                Button(
+                    onClick = onShare,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Share Workout")
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Done")
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
