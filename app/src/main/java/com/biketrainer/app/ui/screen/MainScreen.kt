@@ -1026,6 +1026,7 @@ fun SmallMetricCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FinishedWorkoutScreen(
     workout: com.biketrainer.app.data.workout.Workout,
