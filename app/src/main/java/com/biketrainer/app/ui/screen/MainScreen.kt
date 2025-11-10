@@ -431,6 +431,7 @@ enum class TrainerControlMode {
     POWER
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MetricsDisplay(
     heartRateData: com.biketrainer.app.data.ble.HeartRateData?,
