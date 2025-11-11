@@ -320,6 +320,8 @@ class BleManager(
         val flags = (data[index].toInt() and 0xFF) or ((data[index + 1].toInt() and 0xFF) shl 8)
         index += 2
 
+        Log.d(TAG, "Indoor Bike Data - Flags: 0x${flags.toString(16)}, Data size: ${data.size}, Raw bytes: ${data.joinToString(" ") { "%02X".format(it) }}")
+
         var speed: Double? = null
         var averageSpeed: Double? = null
         var cadence: Double? = null
@@ -356,7 +358,9 @@ class BleManager(
         // Bit 2: Instantaneous Cadence present (uint16, resolution 0.5 rpm)
         if (flags and 0x0004 != 0) {
             if (index + 1 < data.size) {
-                cadence = ((data[index].toInt() and 0xFF) or ((data[index + 1].toInt() and 0xFF) shl 8)) * 0.5
+                val rawCadence = (data[index].toInt() and 0xFF) or ((data[index + 1].toInt() and 0xFF) shl 8)
+                cadence = rawCadence * 0.5
+                Log.d(TAG, "Cadence - Raw value: $rawCadence, Calculated: $cadence rpm, Bytes at index $index: ${data[index].toInt() and 0xFF}, ${data[index + 1].toInt() and 0xFF}")
                 index += 2
             }
         }
