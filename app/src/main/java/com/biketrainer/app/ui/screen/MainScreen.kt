@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +49,15 @@ fun MainScreen() {
             stravaApi = remember { StravaApi(context) }
         )
     )
+
+    // Handle Strava OAuth callback
+    val authCode by com.biketrainer.app.MainActivity.stravaAuthCode
+    LaunchedEffect(authCode) {
+        authCode?.let { code ->
+            viewModel.handleStravaCallback(code)
+            com.biketrainer.app.MainActivity.stravaAuthCode.value = null // Clear after handling
+        }
+    }
     val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         listOf(
             Manifest.permission.BLUETOOTH_SCAN,
@@ -93,31 +103,19 @@ fun MainScreen() {
                 if (lastCompletedWorkout != null) {
                     FinishedWorkoutScreen(
                         workout = lastCompletedWorkout!!,
-                        onShare = {
-                            // Find the TCX file for this workout
+                        isStravaAuthenticated = viewModel.isStravaAuthenticated(),
+                        onConnectStrava = {
+                            viewModel.initiateStravaAuth()
+                        },
+                        onUploadToStrava = {
                             val tcxFile = viewModel.getAllWorkouts().firstOrNull { file ->
                                 file.nameWithoutExtension == lastCompletedWorkout!!.id
                             }
                             tcxFile?.let { file ->
-                                try {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        file
-                                    )
-                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "application/xml"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        putExtra(Intent.EXTRA_SUBJECT, "Bike Trainer Workout")
-                                        putExtra(Intent.EXTRA_TEXT, "Check out my workout!")
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                    }
-                                    context.startActivity(Intent.createChooser(shareIntent, "Share Workout"))
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
+                                viewModel.uploadToStrava(file)
                             }
                         },
+                        uploadStatus = viewModel.uploadStatus.collectAsStateWithLifecycle().value,
                         onDismiss = {
                             viewModel.clearLastWorkout()
                         }
@@ -446,14 +444,15 @@ fun MetricsDisplay(
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
     val workoutDuration by viewModel.currentWorkoutDuration.collectAsStateWithLifecycle()
     val uploadStatus by viewModel.uploadStatus.collectAsStateWithLifecycle()
+    val liveStats by viewModel.liveStats.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 16.dp)
+            .padding(horizontal = if (isRecording) 12.dp else 16.dp)
     ) {
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 8.dp else 16.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -462,115 +461,133 @@ fun MetricsDisplay(
             ) {
                 Text(
                     text = "Live Metrics",
-                    style = MaterialTheme.typography.headlineSmall,
+                    style = if (isRecording) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold
                 )
 
-                Button(
-                    onClick = onDisconnect,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Disconnect")
-                }
-            }
-        }
-
-        // Workout Recording Section
-        item {
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isRecording) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                if (isRecording) {
+                    // Show Stop button when recording
+                    Button(
+                        onClick = { viewModel.stopWorkout() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        ),
+                        modifier = Modifier.height(36.dp)
                     ) {
-                        Column {
-                            Text(
-                                text = if (isRecording) "Recording Workout" else "Workout",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isRecording) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-
-                            if (isRecording) {
-                                val minutes = workoutDuration / 60
-                                val seconds = workoutDuration % 60
-                                Text(
-                                    text = String.format("%02d:%02d", minutes, seconds),
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            }
-                        }
-
-                        Button(
-                            onClick = {
-                                if (isRecording) {
-                                    viewModel.stopWorkout()
-                                } else {
-                                    viewModel.startWorkout()
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isRecording) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Text(if (isRecording) "Stop Workout" else "Start Workout")
-                        }
+                        Text("Stop", style = MaterialTheme.typography.bodySmall)
+                    }
+                } else {
+                    // Show Disconnect button when not recording
+                    Button(
+                        onClick = onDisconnect,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        ),
+                        modifier = Modifier.height(40.dp)
+                    ) {
+                        Text("Disconnect", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
         }
 
-        // Upload Status Banner
-        uploadStatus?.let { status ->
+        // Workout timer when recording
+        if (isRecording) {
             item {
                 Spacer(modifier = Modifier.height(8.dp))
+
+                val minutes = workoutDuration / 60
+                val seconds = workoutDuration % 60
+                Text(
+                    text = String.format("%02d:%02d", minutes, seconds),
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
+
+        // Workout Recording Section - Only show when not recording
+        if (!isRecording) {
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
                     )
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                    Column(
+                        modifier = Modifier.padding(16.dp)
                     ) {
-                        if (status.contains("syncing", ignoreCase = true)) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Workout",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+
+                            Button(
+                                onClick = { viewModel.startWorkout() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                ),
+                                modifier = Modifier.height(40.dp)
+                            ) {
+                                Text("Start Workout", style = MaterialTheme.typography.bodyMedium)
+                            }
                         }
-                        Text(
-                            text = status,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
                     }
                 }
             }
         }
 
-        // Trainer Control Section
+        // Upload Status Banner - Hide when recording to save space
+        uploadStatus?.let { status ->
+            if (!isRecording) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (status.contains("syncing", ignoreCase = true)) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = status,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Trainer Control Section - Compact when recording
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 8.dp else 16.dp))
 
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -579,16 +596,17 @@ fun MetricsDisplay(
                 )
             ) {
                 Column(
-                    modifier = Modifier.padding(16.dp)
+                    modifier = Modifier.padding(if (isRecording) 10.dp else 16.dp)
                 ) {
-                    Text(
-                        text = "Trainer Control",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
+                    if (!isRecording) {
+                        Text(
+                            text = "Trainer Control",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
 
                     if (!hasRequestedControl) {
                         Button(
@@ -604,37 +622,38 @@ fun MetricsDisplay(
                         // Mode Selector
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(if (isRecording) 4.dp else 8.dp)
                         ) {
                             FilterChip(
                                 selected = controlMode == TrainerControlMode.RESISTANCE,
                                 onClick = { controlMode = TrainerControlMode.RESISTANCE },
-                                label = { Text("Resistance") },
+                                label = { Text("Resistance", style = if (isRecording) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium) },
                                 modifier = Modifier.weight(1f)
                             )
                             FilterChip(
                                 selected = controlMode == TrainerControlMode.POWER,
                                 onClick = { controlMode = TrainerControlMode.POWER },
-                                label = { Text("Target Power") },
+                                label = { Text("ERG Mode", style = if (isRecording) MaterialTheme.typography.labelSmall else MaterialTheme.typography.labelMedium) },
                                 modifier = Modifier.weight(1f)
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(if (isRecording) 6.dp else 12.dp))
 
                         when (controlMode) {
                             TrainerControlMode.RESISTANCE -> {
-                                Text(
-                                    text = "Manual resistance control - you control power by pedaling harder or softer",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
-                                )
-
-                                Spacer(modifier = Modifier.height(12.dp))
+                                if (!isRecording) {
+                                    Text(
+                                        text = "Manual resistance control - you control power by pedaling harder or softer",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                }
 
                                 Text(
                                     text = "Resistance Level: ${resistanceLevel.toInt()}",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = if (isRecording) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onTertiaryContainer
                                 )
@@ -650,17 +669,18 @@ fun MetricsDisplay(
                                 )
                             }
                             TrainerControlMode.POWER -> {
-                                Text(
-                                    text = "ERG mode - trainer auto-adjusts resistance to maintain your target wattage",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
-                                )
-
-                                Spacer(modifier = Modifier.height(12.dp))
+                                if (!isRecording) {
+                                    Text(
+                                        text = "ERG mode - trainer auto-adjusts resistance to maintain your target wattage",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                }
 
                                 Text(
                                     text = "Target Power: ${targetPower.toInt()} watts",
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = if (isRecording) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onTertiaryContainer
                                 )
@@ -677,16 +697,18 @@ fun MetricsDisplay(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                        if (!isRecording) {
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                        Button(
-                            onClick = { viewModel.resetTrainer() },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondary
-                            )
-                        ) {
-                            Text("Reset Trainer")
+                            Button(
+                                onClick = { viewModel.resetTrainer() },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondary
+                                )
+                            ) {
+                                Text("Reset Trainer")
+                            }
                         }
                     }
                 }
@@ -695,28 +717,29 @@ fun MetricsDisplay(
 
         // Primary Metrics Section
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 8.dp else 16.dp))
 
             Text(
                 text = "Primary Metrics",
-                style = MaterialTheme.typography.titleMedium,
+                style = if (isRecording) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
         }
 
         item {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 4.dp else 8.dp))
 
             MetricCard(
                 title = if (heartRateData == null) "Heart Rate (no monitor)" else "Heart Rate",
                 value = heartRateData?.heartRate?.toString() ?: "--",
                 unit = "bpm",
-                icon = Icons.Default.Favorite
+                icon = Icons.Default.Favorite,
+                isCompact = isRecording
             )
         }
 
-        // HR Monitor Reconnect Button
-        if (heartRateData == null && viewModel.hasLastHeartRateDevice()) {
+        // HR Monitor Reconnect Button - Hide when recording to save space
+        if (heartRateData == null && viewModel.hasLastHeartRateDevice() && !isRecording) {
             item {
                 Spacer(modifier = Modifier.height(8.dp))
 
@@ -736,183 +759,234 @@ fun MetricsDisplay(
         }
 
         item {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 6.dp else 12.dp))
 
             MetricCard(
                 title = "Power",
                 value = trainerData?.power?.toString() ?: "--",
                 unit = "watts",
-                icon = Icons.Default.DirectionsBike
+                icon = Icons.Default.DirectionsBike,
+                isCompact = isRecording
             )
         }
 
         // Speed and Cadence Row
         item {
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 6.dp else 12.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isRecording) 8.dp else 12.dp)
             ) {
                 SmallMetricCard(
                     title = "Speed",
-                    value = trainerData?.speed?.let { "%.1f".format(it) } ?: "--",
-                    unit = "km/h",
-                    modifier = Modifier.weight(1f)
+                    value = trainerData?.speed?.let { "%.1f".format(it * 0.621371) } ?: "--",
+                    unit = "mph",
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
 
                 SmallMetricCard(
                     title = "Cadence",
                     value = trainerData?.cadence?.let { "%.0f".format(it) } ?: "--",
                     unit = "rpm",
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
             }
         }
 
         // Additional Metrics Section
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 8.dp else 16.dp))
 
             Text(
                 text = "Additional Metrics",
-                style = MaterialTheme.typography.titleMedium,
+                style = if (isRecording) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
         }
 
         item {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 4.dp else 8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isRecording) 8.dp else 12.dp)
             ) {
                 SmallMetricCard(
                     title = "Avg Speed",
-                    value = trainerData?.averageSpeed?.let { "%.1f".format(it) } ?: "--",
-                    unit = "km/h",
-                    modifier = Modifier.weight(1f)
+                    value = if (isRecording) {
+                        liveStats.averageSpeed?.let { "%.1f".format(it * 0.621371) } ?: "--"
+                    } else {
+                        trainerData?.averageSpeed?.let { "%.1f".format(it * 0.621371) } ?: "--"
+                    },
+                    unit = "mph",
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
 
                 SmallMetricCard(
                     title = "Avg Cadence",
-                    value = trainerData?.averageCadence?.let { "%.0f".format(it) } ?: "--",
+                    value = if (isRecording) {
+                        liveStats.averageCadence?.let { "%.0f".format(it) } ?: "--"
+                    } else {
+                        trainerData?.averageCadence?.let { "%.0f".format(it) } ?: "--"
+                    },
                     unit = "rpm",
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
             }
         }
 
         item {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 4.dp else 8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isRecording) 8.dp else 12.dp)
             ) {
                 SmallMetricCard(
                     title = "Avg Power",
-                    value = trainerData?.averagePower?.toString() ?: "--",
+                    value = if (isRecording) {
+                        liveStats.averagePower?.toString() ?: "--"
+                    } else {
+                        trainerData?.averagePower?.toString() ?: "--"
+                    },
                     unit = "watts",
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
 
                 SmallMetricCard(
                     title = "Resistance",
                     value = trainerData?.resistanceLevel?.toString() ?: "--",
                     unit = "level",
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
             }
         }
 
         item {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 4.dp else 8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isRecording) 8.dp else 12.dp)
             ) {
                 SmallMetricCard(
                     title = "Distance",
-                    value = trainerData?.distance?.let { "%.2f".format(it / 1000.0) } ?: "--",
-                    unit = "km",
-                    modifier = Modifier.weight(1f)
+                    value = if (isRecording) {
+                        "%.2f".format(liveStats.distance / 1000.0 * 0.621371)
+                    } else {
+                        trainerData?.distance?.let { "%.2f".format(it / 1000.0 * 0.621371) } ?: "--"
+                    },
+                    unit = "mi",
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
 
                 SmallMetricCard(
                     title = "Time",
-                    value = trainerData?.elapsedTime?.let {
-                        val minutes = it / 60
-                        val seconds = it % 60
+                    value = if (isRecording) {
+                        val minutes = liveStats.elapsedTime / 60
+                        val seconds = liveStats.elapsedTime % 60
                         "%d:%02d".format(minutes, seconds)
-                    } ?: "--",
+                    } else {
+                        trainerData?.elapsedTime?.let {
+                            val minutes = it / 60
+                            val seconds = it % 60
+                            "%d:%02d".format(minutes, seconds)
+                        } ?: "--"
+                    },
                     unit = "min",
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
             }
         }
 
         // Energy Metrics Section
         item {
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 8.dp else 16.dp))
 
             Text(
                 text = "Energy & Calories",
-                style = MaterialTheme.typography.titleMedium,
+                style = if (isRecording) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold
             )
         }
 
         item {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 4.dp else 8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isRecording) 8.dp else 12.dp)
             ) {
                 SmallMetricCard(
-                    title = "Total Energy",
-                    value = trainerData?.totalEnergy?.toString() ?: "--",
+                    title = "Total Calories",
+                    value = if (isRecording) {
+                        liveStats.calories?.toString() ?: "--"
+                    } else {
+                        trainerData?.totalEnergy?.toString() ?: "--"
+                    },
                     unit = "kcal",
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
 
                 SmallMetricCard(
-                    title = "Energy/Hour",
-                    value = trainerData?.energyPerHour?.toString() ?: "--",
-                    unit = "kcal/h",
-                    modifier = Modifier.weight(1f)
+                    title = "Avg HR",
+                    value = if (isRecording) {
+                        liveStats.averageHeartRate?.toString() ?: "--"
+                    } else {
+                        "--"
+                    },
+                    unit = "bpm",
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
             }
         }
 
         item {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 4.dp else 8.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(if (isRecording) 8.dp else 12.dp)
             ) {
                 SmallMetricCard(
-                    title = "Energy/Min",
-                    value = trainerData?.energyPerMinute?.toString() ?: "--",
-                    unit = "kcal/m",
-                    modifier = Modifier.weight(1f)
+                    title = "Max Power",
+                    value = if (isRecording) {
+                        liveStats.maxPower?.toString() ?: "--"
+                    } else {
+                        "--"
+                    },
+                    unit = "watts",
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
 
                 SmallMetricCard(
-                    title = "MET",
-                    value = trainerData?.metabolicEquivalent?.let { "%.1f".format(it) } ?: "--",
-                    unit = "",
-                    modifier = Modifier.weight(1f)
+                    title = "Max HR",
+                    value = if (isRecording) {
+                        liveStats.maxHeartRate?.toString() ?: "--"
+                    } else {
+                        "--"
+                    },
+                    unit = "bpm",
+                    modifier = Modifier.weight(1f),
+                    isCompact = isRecording
                 )
             }
         }
 
         item {
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(if (isRecording) 8.dp else 24.dp))
         }
     }
 }
@@ -922,7 +996,8 @@ fun MetricCard(
     title: String,
     value: String,
     unit: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isCompact: Boolean = false
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -933,22 +1008,22 @@ fun MetricCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(24.dp),
+                .padding(if (isCompact) 12.dp else 24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                modifier = Modifier.size(48.dp),
+                modifier = Modifier.size(if (isCompact) 32.dp else 48.dp),
                 tint = MaterialTheme.colorScheme.onPrimaryContainer
             )
 
-            Spacer(modifier = Modifier.width(24.dp))
+            Spacer(modifier = Modifier.width(if (isCompact) 12.dp else 24.dp))
 
             Column {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = if (isCompact) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
 
@@ -957,18 +1032,18 @@ fun MetricCard(
                 ) {
                     Text(
                         text = value,
-                        style = MaterialTheme.typography.displayMedium,
+                        style = if (isCompact) MaterialTheme.typography.displaySmall else MaterialTheme.typography.displayMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
 
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(if (isCompact) 4.dp else 8.dp))
 
                     Text(
                         text = unit,
-                        style = MaterialTheme.typography.titleLarge,
+                        style = if (isCompact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(bottom = 4.dp)
+                        modifier = Modifier.padding(bottom = if (isCompact) 2.dp else 4.dp)
                     )
                 }
             }
@@ -981,7 +1056,8 @@ fun SmallMetricCard(
     title: String,
     value: String,
     unit: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isCompact: Boolean = false
 ) {
     Card(
         modifier = modifier,
@@ -992,34 +1068,34 @@ fun SmallMetricCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(if (isCompact) 10.dp else 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall,
+                style = if (isCompact) MaterialTheme.typography.labelMedium else MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSecondaryContainer
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (isCompact) 4.dp else 8.dp))
 
             Row(
                 verticalAlignment = Alignment.Bottom
             ) {
                 Text(
                     text = value,
-                    style = MaterialTheme.typography.displaySmall,
+                    style = if (isCompact) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.displaySmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSecondaryContainer
                 )
 
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(if (isCompact) 2.dp else 4.dp))
 
                 Text(
                     text = unit,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = if (isCompact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.padding(bottom = 4.dp)
+                    modifier = Modifier.padding(bottom = if (isCompact) 2.dp else 4.dp)
                 )
             }
         }
@@ -1030,7 +1106,10 @@ fun SmallMetricCard(
 @Composable
 fun FinishedWorkoutScreen(
     workout: com.biketrainer.app.data.workout.Workout,
-    onShare: () -> Unit,
+    isStravaAuthenticated: Boolean,
+    onConnectStrava: () -> Unit,
+    onUploadToStrava: () -> Unit,
+    uploadStatus: String?,
     onDismiss: () -> Unit
 ) {
     Scaffold(
@@ -1263,7 +1342,7 @@ fun FinishedWorkoutScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "%.2f km".format(workout.totalDistance / 1000),
+                                text = "%.2f mi".format(workout.totalDistance / 1000 * 0.621371),
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
@@ -1338,18 +1417,88 @@ fun FinishedWorkoutScreen(
                 }
             }
 
+            // Strava Upload Status
+            uploadStatus?.let { status ->
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (status.contains("success", ignoreCase = true)) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else if (status.contains("fail", ignoreCase = true) || status.contains("error", ignoreCase = true)) {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.tertiaryContainer
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (status.contains("uploading", ignoreCase = true)) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                            } else if (status.contains("success", ignoreCase = true)) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                            }
+                            Text(
+                                text = status,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+
             // Action Buttons
             item {
-                Button(
-                    onClick = onShare,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = null
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Share Workout")
+                if (!isStravaAuthenticated) {
+                    // Show "Connect to Strava" button
+                    Button(
+                        onClick = onConnectStrava,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Connect to Strava")
+                    }
+                } else if (uploadStatus == null || uploadStatus.contains("failed", ignoreCase = true)) {
+                    // Show "Upload to Strava" button if authenticated and not uploaded/failed
+                    Button(
+                        onClick = onUploadToStrava,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiary
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Upload to Strava")
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))

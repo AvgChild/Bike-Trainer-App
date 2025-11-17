@@ -52,6 +52,9 @@ class MainViewModel(
     val currentWorkoutDuration: StateFlow<Long> = workoutManager.currentWorkoutDuration
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
+    val liveStats = workoutManager.liveStats
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.biketrainer.app.data.workout.LiveWorkoutStats())
+
     private val _uploadStatus = MutableStateFlow<String?>(null)
     val uploadStatus: StateFlow<String?> = _uploadStatus.asStateFlow()
 

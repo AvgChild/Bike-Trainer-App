@@ -18,9 +18,9 @@ class StravaApi(
 ) {
     companion object {
         private const val TAG = "StravaApi"
-        private const val CLIENT_ID = "YOUR_STRAVA_CLIENT_ID" // User needs to replace this
-        private const val CLIENT_SECRET = "YOUR_STRAVA_CLIENT_SECRET" // User needs to replace this
-        private const val REDIRECT_URI = "biketrainer://strava/callback"
+        private const val CLIENT_ID = "185812"
+        private const val CLIENT_SECRET = "7ab3120b3567faf5eb6785f268773fecb3004c09"
+        private const val REDIRECT_URI = "http://localhost/exchange_token"
 
         private const val AUTH_URL = "https://www.strava.com/oauth/authorize"
         private const val TOKEN_URL = "https://www.strava.com/oauth/token"
@@ -112,7 +112,7 @@ class StravaApi(
                     tcxFile.asRequestBody("application/xml".toMediaTypeOrNull())
                 )
                 .addFormDataPart("data_type", "tcx")
-                .addFormDataPart("name", "Indoor Cycling - ${tcxFile.nameWithoutExtension}")
+                .addFormDataPart("name", "Indoor Cycling")
                 .addFormDataPart("description", "Uploaded from Bike Trainer App")
                 .build()
 

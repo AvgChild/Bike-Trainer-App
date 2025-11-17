@@ -10,6 +10,18 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.util.UUID
 
+data class LiveWorkoutStats(
+    val distance: Double = 0.0,  // meters
+    val averageSpeed: Double? = null,  // km/h
+    val averageCadence: Double? = null,  // rpm
+    val averagePower: Int? = null,  // watts
+    val averageHeartRate: Int? = null,  // bpm
+    val maxPower: Int? = null,
+    val maxHeartRate: Int? = null,
+    val calories: Int? = null,
+    val elapsedTime: Long = 0  // seconds
+)
+
 class WorkoutManager(
     private val context: Context
 ) {
@@ -23,6 +35,9 @@ class WorkoutManager(
 
     private val _currentWorkoutDuration = MutableStateFlow(0L)
     val currentWorkoutDuration: StateFlow<Long> = _currentWorkoutDuration.asStateFlow()
+
+    private val _liveStats = MutableStateFlow(LiveWorkoutStats())
+    val liveStats: StateFlow<LiveWorkoutStats> = _liveStats.asStateFlow()
 
     private var currentWorkoutId: String? = null
     private var workoutStartTime: Long = 0
@@ -40,6 +55,7 @@ class WorkoutManager(
         lastSampleTime = workoutStartTime
         _isRecording.value = true
         _currentWorkoutDuration.value = 0
+        _liveStats.value = LiveWorkoutStats()
 
         Log.d(TAG, "Workout started: $currentWorkoutId")
     }
@@ -67,7 +83,38 @@ class WorkoutManager(
 
         workoutSamples.add(sample)
         lastSampleTime = currentTime
-        _currentWorkoutDuration.value = (currentTime - workoutStartTime) / 1000
+
+        val elapsedTime = (currentTime - workoutStartTime) / 1000
+        _currentWorkoutDuration.value = elapsedTime
+
+        // Calculate live statistics
+        val speeds = workoutSamples.mapNotNull { it.speed }
+        val cadences = workoutSamples.mapNotNull { it.cadence }
+        val powers = workoutSamples.mapNotNull { it.power }
+        val heartRates = workoutSamples.mapNotNull { it.heartRate }
+
+        val avgSpeed = if (speeds.isNotEmpty()) speeds.average() else null
+        val avgCadence = if (cadences.isNotEmpty()) cadences.average() else null
+        val avgPower = if (powers.isNotEmpty()) powers.average().toInt() else null
+        val avgHeartRate = if (heartRates.isNotEmpty()) heartRates.average().toInt() else null
+        val maxPower = powers.maxOrNull()
+        val maxHeartRate = heartRates.maxOrNull()
+
+        // Calculate calories (rough estimation: 1 calorie per watt per hour)
+        val durationHours = elapsedTime / 3600.0
+        val calories = avgPower?.let { (it * durationHours).toInt() }
+
+        _liveStats.value = LiveWorkoutStats(
+            distance = cumulativeDistance,
+            averageSpeed = avgSpeed,
+            averageCadence = avgCadence,
+            averagePower = avgPower,
+            averageHeartRate = avgHeartRate,
+            maxPower = maxPower,
+            maxHeartRate = maxHeartRate,
+            calories = calories,
+            elapsedTime = elapsedTime
+        )
 
         Log.d(TAG, "Sample recorded: HR=${sample.heartRate}, Power=${sample.power}, Distance=${cumulativeDistance}m")
     }

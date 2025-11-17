@@ -45,9 +45,9 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="biketrainer"
-                    android:host="strava"
-                    android:pathPrefix="/callback" />
+                    android:scheme="http"
+                    android:host="localhost"
+                    android:path="/exchange_token" />
             </intent-filter>
         </activity>
 
