@@ -130,6 +130,11 @@ class StravaApi(
                 val uploadId = json.getLong("id")
                 Log.d(TAG, "Upload successful: $uploadId")
                 UploadResult.Success(uploadId)
+            } else if (response.code == 401 || response.code == 403) {
+                // Token revoked or unauthorized - clear local tokens
+                Log.w(TAG, "Authentication failed - tokens may have been revoked")
+                disconnectStrava()
+                UploadResult.NotAuthenticated
             } else {
                 Log.e(TAG, "Upload failed: ${response.code} - $responseBody")
                 UploadResult.Error("Upload failed: ${response.code}")
@@ -145,6 +150,17 @@ class StravaApi(
 
     fun logout() {
         prefs.edit().clear().apply()
+        Log.d(TAG, "Logged out from Strava")
+    }
+
+    fun disconnectStrava() {
+        // Clear all stored tokens
+        prefs.edit()
+            .remove(KEY_ACCESS_TOKEN)
+            .remove(KEY_REFRESH_TOKEN)
+            .remove(KEY_EXPIRES_AT)
+            .apply()
+        Log.d(TAG, "Disconnected from Strava")
     }
 }
 

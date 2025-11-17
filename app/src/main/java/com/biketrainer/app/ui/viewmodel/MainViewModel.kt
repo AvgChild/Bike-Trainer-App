@@ -61,6 +61,9 @@ class MainViewModel(
     private val _lastCompletedWorkout = MutableStateFlow<Workout?>(null)
     val lastCompletedWorkout: StateFlow<Workout?> = _lastCompletedWorkout.asStateFlow()
 
+    private val _isStravaAuthenticated = MutableStateFlow(stravaApi.isAuthenticated())
+    val isStravaAuthenticated: StateFlow<Boolean> = _isStravaAuthenticated.asStateFlow()
+
     fun startScanning() {
         bleManager.startScanning()
     }
@@ -133,6 +136,7 @@ class MainViewModel(
                                 _uploadStatus.value = "Auto-sync failed: ${result.message}"
                             }
                             is UploadResult.NotAuthenticated -> {
+                                _isStravaAuthenticated.value = false
                                 _uploadStatus.value = null
                             }
                         }
@@ -182,6 +186,7 @@ class MainViewModel(
     fun handleStravaCallback(code: String) {
         viewModelScope.launch {
             val success = stravaApi.handleOAuthCallback(code)
+            _isStravaAuthenticated.value = stravaApi.isAuthenticated()
             _uploadStatus.value = if (success) {
                 "Successfully connected to Strava!"
             } else {
@@ -204,6 +209,7 @@ class MainViewModel(
                     _uploadStatus.value = "Upload failed: ${result.message}"
                 }
                 is UploadResult.NotAuthenticated -> {
+                    _isStravaAuthenticated.value = false
                     _uploadStatus.value = "Please connect to Strava first"
                     stravaApi.startOAuthFlow()
                 }
@@ -216,6 +222,11 @@ class MainViewModel(
 
     fun isStravaAuthenticated(): Boolean {
         return stravaApi.isAuthenticated()
+    }
+
+    fun disconnectStrava() {
+        stravaApi.disconnectStrava()
+        _isStravaAuthenticated.value = false
     }
 
     override fun onCleared() {

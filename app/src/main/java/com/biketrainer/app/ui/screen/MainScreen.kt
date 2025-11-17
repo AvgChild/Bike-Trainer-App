@@ -101,9 +101,10 @@ fun MainScreen() {
         ) {
             if (permissionsState.allPermissionsGranted) {
                 if (lastCompletedWorkout != null) {
+                    val isStravaAuthenticated by viewModel.isStravaAuthenticated.collectAsStateWithLifecycle()
                     FinishedWorkoutScreen(
                         workout = lastCompletedWorkout!!,
-                        isStravaAuthenticated = viewModel.isStravaAuthenticated(),
+                        isStravaAuthenticated = isStravaAuthenticated,
                         onConnectStrava = {
                             viewModel.initiateStravaAuth()
                         },
@@ -445,6 +446,7 @@ fun MetricsDisplay(
     val workoutDuration by viewModel.currentWorkoutDuration.collectAsStateWithLifecycle()
     val uploadStatus by viewModel.uploadStatus.collectAsStateWithLifecycle()
     val liveStats by viewModel.liveStats.collectAsStateWithLifecycle()
+    val isStravaAuthenticated by viewModel.isStravaAuthenticated.collectAsStateWithLifecycle()
 
     LazyColumn(
         modifier = Modifier
@@ -579,6 +581,89 @@ fun MetricsDisplay(
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Strava Connection Section - Only show when not recording
+        if (!isRecording) {
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isStravaAuthenticated) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.secondaryContainer
+                        }
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Strava Connection",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isStravaAuthenticated) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    }
+                                )
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                Text(
+                                    text = if (isStravaAuthenticated) {
+                                        "Connected - workouts will auto-upload"
+                                    } else {
+                                        "Connect to automatically sync workouts"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isStravaAuthenticated) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    }
+                                )
+                            }
+
+                            if (isStravaAuthenticated) {
+                                OutlinedButton(
+                                    onClick = { viewModel.disconnectStrava() },
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    )
+                                ) {
+                                    Text("Disconnect")
+                                }
+                            } else {
+                                Button(
+                                    onClick = { viewModel.initiateStravaAuth() },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.tertiary
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Favorite,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Connect")
+                                }
+                            }
                         }
                     }
                 }
