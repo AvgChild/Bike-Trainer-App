@@ -438,7 +438,7 @@ fun MetricsDisplay(
     onDisconnect: () -> Unit,
     viewModel: MainViewModel
 ) {
-    var resistanceLevel by remember { mutableStateOf(50f) }
+    var resistanceLevel by remember { mutableStateOf(5f) }
     var targetPower by remember { mutableStateOf(150f) }
     var hasRequestedControl by remember { mutableStateOf(false) }
     var controlMode by remember { mutableStateOf(TrainerControlMode.RESISTANCE) }
@@ -746,9 +746,9 @@ fun MetricsDisplay(
                                 Slider(
                                     value = resistanceLevel,
                                     onValueChange = { resistanceLevel = it },
-                                    valueRange = 0f..100f,
+                                    valueRange = 1f..10f,
                                     onValueChangeFinished = {
-                                        viewModel.setTargetResistanceLevel(resistanceLevel.toInt())
+                                        viewModel.setTargetResistanceLevel(resistanceLevel.toInt() * 10)
                                     },
                                     modifier = Modifier.fillMaxWidth()
                                 )
